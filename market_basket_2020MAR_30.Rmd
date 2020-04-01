@@ -1,0 +1,699 @@
+---
+title: "MBA - Market Basket Analysis"
+output:
+  html_document:
+    code_folding: hide
+    highlight: tango
+    number_sections: no
+    toc: yes
+    toc_depth: 4
+    toc_float: no
+  pdf_document:
+    toc: yes
+    toc_depth: '4'
+date: "março/2020"
+subtitle: Machine Learning para ofertas de produtos e serviços
+---
+
+<style>
+body, h1, h2, h3, h4 {
+  font-family: "Tahoma", arial;
+}
+
+body {
+  color: #333333;
+}
+a, a:hover {
+  color: #333333;
+}
+pre {
+  font-size: 12px;
+}
+</style>
+
+## 1. Eclat e Apriori
+
+Quando navegamos no e-commmerce recebemos sugestões de produtos baseadas no histórico de compras dos consumidores, por exemplo: "Quem comprou o produto A também comprou o produto B". **Market Basket Analysis** é uma das técnicas utilizadas para gerar estas recomendações. É uma técnica de *data mining* baseada na teoria: *se você compra determinados produtos você está propenso a comprar determinados outros produtos*. Exemplos: pessoas que compram café também compram açúcar ou pessoas que compram hamburger também compram queijo. Esta técnica é implementada por meio dos algoritmos [*eclat*](https://en.wikipedia.org/wiki/Association_rule_learning) e [*apriori*](https://en.wikipedia.org/wiki/Association_rule_learning). 
+
+O *eclat* e o *apriori* encontram padrões de associação entre diferentes itens, mas estas regras dependem de métricas que demonstram seu grau de efetividade: suporte, confiança e lift.
+
+### 1.1 Cestas de compras (transações)
+
+O **Market Basket Analysis** utiliza um conjunto de cestas de compras ou transações de compras no formato em que cada linha representa uma transação e os itens comprados.
+
+$$
+\left(\begin{array}{ccc}
+t_{1} & hamburguer & queijo & refrigerante\\
+t_{2} & hamburguer & queijo & refrigerante & tomate & alface\\
+t_{3} & hamburguer & cebola\\
+t_{4} & café & cerveja\\
+t_{5} & sabonete & desodorante
+\end{array}\right)
+$$
+
+### 1.2 Suporte
+Mensura a frequencia de uma regra em relação a todas as transações de compra, ou seja, o % de cestas que contém a combinação de itens apontadas pela regra
+
+$$suporte = frequencia(x)/n = P(x)$$
+Onde x é um item e n é o total de cestas de compras ou transações de compra. Assim podemos mensurar o suporte para um subconjunto de itens, por exemplo os itens x e y
+
+$$suporte = frequencia(x,y)/n = P(x \cap y)$$
+
+Fazendo x e y os itens hamburguer e queijo temos
+$$suporte(hamburguer,queijo) = \frac{frequencia(hamburguer,queijo)}{compras} = P(hamburguer \cap queijo)$$
+De um total de 5 transações, 2 transações contém o subconjunto de itens hamburguer e queijo
+$$suporte(hamburguer,queijo) = \frac{2}{5} = 0,4$$
+O suporte deste subconjunto é, então, 40%.
+
+
+### 1.3 Confiança
+Mensura a proporção do quanto um item B é comprado após um item A ter sido comprado
+
+$$confiança = \frac{frequencia(x,y)}{frequencia(x)} = \frac{P(x \cap y)}{P(x)}$$
+
+Por esta equação entendemos que entre o número de cestas de compra que tem hamburguer podemos calcular a proporção de cestas em que estão juntos o hamburguer e o queijo:
+$$confiança = \frac{frequencia(hamburguer,queijo)}{frequencia(hamburguer)} = \frac{P(hamburguer \cap queijo)}{P(hamburguer)}$$
+
+No cojunto de transações exemplificado acima:
+$$confiança = \frac{2}{3} = 0,67$$
+Em 67% das compras de hamburguer também houve a compra do queijo.
+
+### 1.4 Lift
+Quando > 1, é provável que um produto B seja comprado após um produto A ter sido comprado.
+Quando < 1, é improvável.
+
+$$lift = \frac{suporte(x,y)}{suporte(x)*suporte(y)} = \frac{P(x \cap y)}{P(x)*P(y)}$$
+$$lift = \frac{suporte(hamburguer,queijo)}{suporte(hamburguer)*suporte(queijo)} = \frac{P(hamburguer \cap queijo)}{P(hamburguer)*P(queijo)}$$
+$$lift = \frac{0,4}{0,6*0,4} = 0.1$$
+
+```{r setup, include = FALSE, echo = FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+## R chunk options
+## include: whether to show the R code chunck and its output
+## echo:    whether to show the R code chunk
+## message: whether to show output messages
+## warning: whether to show output warnings
+## eval:    whether to actually evaluate the R code chunk
+
+```
+
+
+```{r eval = TRUE, include = FALSE, echo = FALSE, message = FALSE, warning = FALSE}
+
+## Instalação de Pacotes
+if (!require("pacman")) install.packages("pacman")
+library(pacman)
+pacman::p_load(data.table,
+               dplyr,
+               arules,
+               arulesViz,
+               formattable,
+               ggplot2,
+               gridExtra)
+
+## Dataset
+data("Groceries")
+
+```
+
+
+## 2. Cestas de compras
+
+O histórico de transações de compras é utilizado para mapear o comportamento de compras. Para cada uma das transações é necessário ter a lista de todos os produtos/serviços adquiridos. Iniciando a exploração dos dados, podemos identificar o *número de transações* existentes e também o *número de itens diferentes* encontrados nas cestas de compras (transações). Utilizando como exemplo o dataset *Groceries*, disponível para a linguagem R, e contendo 1 mês de transações de um supermercado real:
+
+```{r eval = TRUE, include = TRUE, echo = TRUE, message = FALSE, warning = FALSE}
+
+## Número de itens diferentes
+itens <- arules::summary(Groceries)@Dim[2]
+## Número de cestas vendidas
+cestas <- arules::summary(Groceries)@Dim[1]
+d <- data.frame(Itens = itens, Cestas = cestas)
+
+```
+
+
+```{r eval = TRUE, include = TRUE, echo = FALSE, message = FALSE, warning = FALSE}
+
+formattable::formattable(d)
+
+```
+
+
+```{r eval = TRUE, include = FALSE, echo = FALSE, message = FALSE, warning = FALSE}
+
+rm(d, itens, cestas)
+
+```
+
+
+## 3. Distribuição dos itens
+
+No dataset *Groceries* os itens mais vendidos são aqueles que as pessoas consomem no dia dia, como leite, yogurte ou legumes e verduras. Visualizando os itens comprados com maior frequencia, respondemos a pergunta sobre quantas vezes um item A foi comprado ou a pergunta sobre quantas cestas de compras possuem um item A.
+
+```{r eval = TRUE, include = TRUE, echo = TRUE, message = FALSE, warning = FALSE}
+
+## Frequencia dos itens vendidos (frequencia absoluta): 20+
+frequencia_itens <- arules::itemFrequency(Groceries, type = 'absolute')
+fa <- data.frame(itens = names(frequencia_itens),
+                 frequencia = frequencia_itens,
+                 row.names = NULL) %>%
+  dplyr::arrange(desc(frequencia)) %>%
+  dplyr::top_n(n = 20)
+rm(frequencia_itens)
+
+mais_20 <- ggplot2::ggplot(fa,
+  aes(x = reorder(itens, frequencia),
+      y = frequencia,
+      fill = reorder(frequencia, itens))) +
+  geom_bar(width = 0.8, stat = "identity", color = "white") +
+  coord_flip() +
+  viridis::scale_fill_viridis(discrete = TRUE, guide = "none",
+                              option = "A", direction = -1,
+                              begin = 0.2, end = 0.6) +
+  geom_label(mapping = aes(label = frequencia),
+             fill = "white", colour = "black", size = 2.3) +
+  theme_bw() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.border = element_rect(fill = NULL,
+                                    colour = 'gray90',
+                                    size = 0.3),
+        axis.title.x = element_text(size = 8),
+        axis.title.y = element_blank(),
+        legend.title = element_blank(),
+        legend.text = element_blank()) +
+  labs(title = "Frequencia de itens mais vendidos",
+       subtitle = "Número de cestas de compras contendo os itens",
+       x = "Itens",
+       y = "Frequencia")
+
+plot(mais_20)
+
+```
+
+```{r eval = TRUE, include = FALSE, echo = FALSE, message = FALSE, warning = FALSE}
+
+rm(mais_20, fa)
+
+```
+
+
+```{r eval = TRUE, include = TRUE, echo = TRUE, message = FALSE, warning = FALSE}
+
+## Frequencia dos itens vendidos (frequencia absoluta): 20-
+frequencia_itens <- arules::itemFrequency(Groceries, type = 'absolute')
+fa <- data.frame(itens = names(frequencia_itens),
+                 frequencia = frequencia_itens,
+                 row.names = NULL) %>%
+  dplyr::arrange(frequencia) %>%
+  dplyr::top_n(n = -20)
+rm(frequencia_itens)
+
+menos_20 <- ggplot2::ggplot(fa,
+  aes(x = reorder(itens, frequencia),
+      y = frequencia,
+      fill = reorder(frequencia, itens))) +
+  geom_bar(width = 0.8, stat = "identity", color = "white") +
+  coord_flip() +
+  viridis::scale_fill_viridis(discrete = TRUE, guide = "none",
+                              option = "A", direction = -1,
+                              begin = 0.2, end = 0.6) +
+  geom_label(mapping = aes(label = frequencia),
+             fill = "white", colour = "black", size = 2.3) +
+  theme_bw() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.border = element_rect(fill = NULL,
+                                    colour = 'gray90',
+                                    size = 0.3),
+        axis.title.x = element_text(size = 8),
+        axis.title.y = element_blank(),
+        legend.title = element_blank(),
+        legend.text = element_blank()) +
+  labs(title = "Frequencia de itens menos vendidos",
+       subtitle = "Número de cestas de compras contendo os itens",
+       x = "Itens",
+       y = "Frequencia")
+
+plot(menos_20)
+
+```
+
+
+```{r eval = TRUE, include = FALSE, echo = FALSE, message = FALSE, warning = FALSE}
+
+rm(d, itens, cestas)
+
+```
+
+
+```{r eval = TRUE, include = FALSE, echo = FALSE, message = FALSE, warning = FALSE}
+
+rm(menos_20, fa)
+
+```
+
+
+## 4. CrossTable
+
+Por meio da função *crossTable* existente no pacote *arules* visualizamos a relação entre os itens.
+
+```{r eval = TRUE, include = TRUE, echo = TRUE, message = FALSE, warning = FALSE}
+
+## Tabela de relacionamento entre os itens
+crossTable <- Groceries %>% 
+  arules::crossTable(measure = "count", sort = TRUE) %>% 
+  as.data.frame()
+
+formattable::formattable(crossTable[1:6, 1:6])
+
+```
+
+Buscando pela combinação entre itens específicos apontando diretamente os nomes dos itens. Por exemlo temos **83** cestas de compras contendo **whole milk** e **flour**. Podemos também aplicar o teste chi-squared para calcular o p-valor da associação entre os itens. Sendo que quanto menor o p-valor maior a probabilidade dos itens serem comprados em cojunto.
+
+
+```{r eval = TRUE, include = TRUE, echo = TRUE, message = FALSE, warning = FALSE}
+
+## Número de cestas contendo itens específicos
+n_cestas <- crossTable["whole milk", "flour"]
+
+## Aplicando o teste chi-squared para calcular o p-valor
+teste_p <- arules::crossTable(Groceries, measure = "chiSquared")["whole milk", "flour"]
+
+a <- data.frame(n_cestas = n_cestas,
+                p_valor = teste_p)
+colnames(a) <- c("Número de cestas", "p-valor")
+formattable::formattable(a)
+
+```
+
+
+```{r eval = TRUE, include = FALSE, echo = FALSE, message = FALSE, warning = FALSE}
+
+rm(n_cestas, teste_p, a, crossTable)
+
+```
+
+
+## 5. Extraindo associações entre itens 
+
+Aplicando o *apriori* podemos extrair itens comprados em conjunto, ou seja, na mesma transação de compra. O *apriori* possibilita parametrizar as métricas de suporte, confiança, lift, além da quantidade de itens participantes das associações.
+
+Visualizando uma amostra aleatória das associações encontradas pelo *apriori*.
+Visualizando as associações com maior nível de suporte.
+
+```{r eval = TRUE, include = TRUE, echo = TRUE, message = FALSE, warning = FALSE}
+
+## Identificando 2 itens comprados em conjunto e que
+## estão em pelo menos 1% das transações de compras (suporte = 0.01)
+itens_associados <- Groceries %>% 
+  arules::apriori(parameter = list(support = 0.01,
+                                   minlen = 2,
+                                   maxlen = 5,
+                                   target = "frequent"),
+                  control = list(verbose = FALSE))
+
+## Número de associações encontradas pelo apriori
+n_associacoes <- itens_associados@items@data@Dim[2]
+n_associacoes <- data.frame(suporte = 0.01, associacoes = n_associacoes)
+colnames(n_associacoes) <- c("Suporte", "Número de Associações")
+formattable::formattable(n_associacoes)
+
+```
+
+
+```{r eval = TRUE, include = FALSE, echo = FALSE, message = FALSE, warning = FALSE}
+
+rm(associacoes, n_associacoes, itens_associados)
+
+```
+
+
+## 6. Extraindo as regras de associação entre itens
+
+Aplicando o *apriori* para extrair as regras de associação entre os itens com suporte de 0,1% e confiança de 50%.
+
+
+```{r eval = TRUE, include = TRUE, echo = TRUE, message = FALSE, warning = FALSE}
+
+## Extraindo regras
+regras <- Groceries %>% 
+  arules::apriori(parameter = list(support = 0.001,
+                                   confidence = 0.5,
+                                   minlen = 2,
+                                   target = "rules"),
+                  control = list(verbose = FALSE))
+
+## Número de regras
+n_regras <- nrow(regras@quality)
+
+regras_associacao <- data.frame(support = c(0.001), confidence = c(0.5),
+                                n_regras = n_regras)
+colnames(regras_associacao) <- c("Suporte", "Confiança", "Regras")
+formattable::formattable(regras_associacao)
+
+```
+
+
+```{r eval = TRUE, include = FALSE, echo = FALSE, message = FALSE, warning = FALSE}
+
+rm(regras_associacao, n_regras)
+
+```
+
+
+```{r eval = TRUE, include = FALSE, echo = FALSE, message = FALSE, warning = FALSE}
+
+## Visualizando as associações ordenadas do maior suporte para o menor suporte
+x <- arules::inspect(sort(head(regras, 5), by = "confidence"),
+                     setStart = '{', setEnd = '}', itemSep = ' + ',
+                     linebreak = NULL)
+colnames(x) <- c("lhs", "-->", "rhs",
+                 "suporte", "confiança", "lift",
+                 "frequencia")
+
+## Ordenando do maior para o menor nível de confiança 
+x <- x %>% 
+  dplyr::arrange(desc(`confiança`)) %>%
+  dplyr::select(lhs, `-->`, rhs,
+                frequencia,
+                suporte, `confiança`, lift)
+
+```
+
+
+Visualizando uma amostra das regras de associação:
+
+```{r eval = TRUE, include = TRUE, echo = TRUE, message = FALSE, warning = FALSE}
+
+formattable::formattable(x)
+
+```
+
+
+```{r eval = TRUE, include = FALSE, echo = FALSE, message = FALSE, warning = FALSE}
+
+rm(x)
+
+```
+
+
+## 7. Número de regras de associações para possíveis níveis de confiança
+
+O *apriori* identifica padrões de associação entre os itens de acordo com os parâmetros de suporte, confiança e lift. Uma possibilidade de escolha de quais padrões deve ser utilizado pode ser a partir da análise do equilíbrio entre suporte e confiança. O ideal é escolher as regras em que o nível de confiança esteja acima de 50%.
+
+Definindo o número de regras de associação como sendo uma função dos níveis de confiança aceitáveis, é possível plotar um gráfico que demonstra qual o número de regras de associação estão aderentes a níveis de confiança considerados adequados.
+
+```{r eval = TRUE, include = TRUE, echo = TRUE, message = FALSE, warning = FALSE}
+
+## Níveis de suporte de 0,5% e 0,1% 
+niveis_suporte <- c(0.005, 0.001)
+
+## 9 níveis de confiança (de 90% até 10%)
+niveis_confianca <- seq(from = 0.9, to = 0.1, by = -0.1)
+
+## Aplicando o apriori para suporte de 0,5% e
+## para os 9 possíveis níveis de confiança
+regras_suporte_05 <- length(length(niveis_confianca))
+for (i in 1 : length(niveis_confianca)) {
+
+   regras_suporte_05[i] <-
+     length(arules::apriori(Groceries, 
+                            parameter = list(support = niveis_suporte[1], 
+                                             confidence = niveis_confianca[i], 
+                                             minlen = 1, 
+                                             maxlen = 5, 
+                                             target = 'rules'),
+                            control = list(verbose = FALSE))) 
+
+ }
+ rm(i) 
+
+
+## Aplicando o apriori para suporte de 0,1%
+## e para os 9 possíveis níveis de confiança
+regras_suporte_01 <- length(length(niveis_confianca))
+for (i in 1 : length(niveis_confianca)) {
+  
+  regras_suporte_01[i] <-
+    length(arules::apriori(Groceries,
+                           parameter = list(support = niveis_suporte[2],
+                                            confidence = niveis_confianca[i],
+                                            minlen = 1,
+                                            maxlen = 5,
+                                            target = 'rules'),
+                           control = list(verbose = FALSE)))
+}
+rm(i)
+
+
+## Número de regras de associação com suporte de 0,5%
+n <- data.frame(niveis_confianca, regras_suporte_05)
+g1 <- ggplot2::ggplot(n, mapping = aes(x = niveis_confianca)) +
+    geom_line(mapping = aes(y = regras_suporte_05)) +
+    geom_point(mapping = aes(y = regras_suporte_05)) +
+    theme_bw() +
+    theme(panel.grid.major.x = element_blank(),
+          panel.grid.major.y = element_blank(),
+          panel.border = element_rect(fill = NULL,
+                                      colour = 'gray90',
+                                      size = 0.2),
+          axis.title.x = element_text(size = 8),
+          axis.title.y = element_text(size = 8),
+          axis.text.x = element_text(size = 8),
+          axis.text.y = element_text(size = 8),
+          legend.title = element_blank(),
+          legend.text = element_blank()) +
+  labs(title = "Suporte de 0,5%",
+       x = "Níveis de confiança",
+       y = "Quantidade de regras")
+rm(n)
+
+
+## Número de regras de associação com suporte de 0,1%
+n <- data.frame(niveis_confianca, regras_suporte_01)
+g2 <- ggplot2::ggplot(n, mapping = aes(x = niveis_confianca)) +
+    geom_line(mapping = aes(y = regras_suporte_01)) +
+    geom_point(mapping = aes(y = regras_suporte_01)) +
+    theme_bw() +
+    theme(panel.grid.major.x = element_blank(),
+          panel.grid.major.y = element_blank(),
+          panel.border = element_rect(fill = NULL,
+                                      colour = 'gray90',
+                                      size = 0.2),
+          axis.title.x = element_text(size = 8),
+          axis.title.y = element_text(size = 8),
+          axis.text.x = element_text(size = 8),
+          axis.text.y = element_text(size = 8),
+          legend.title = element_blank(),
+          legend.text = element_blank()) +
+  labs(title = "Suporte de 0,1%",
+       x = "Níveis de confiança",
+       y = "Quantidade de regras")
+rm(n)
+
+## Número de regras de associação em função do nível de confiança
+gridExtra::grid.arrange(g1, g2, nrow = 1, ncol = 2)
+
+```
+
+
+Comparando a função em um mesmo gráfico:
+
+
+```{r eval = TRUE, echo = TRUE, message = FALSE, warning = FALSE, include = TRUE}
+
+## Dataset contendo as quantidades de regras de associação
+## em função dos níveis de confiança
+d <- data.frame(niveis_confianca,
+                 regras_suporte_05,
+                 regras_suporte_01)
+
+## Gráfico comparando a função para os 2 parâmetros de suporte
+g3 <- d %>%
+  ggplot2::ggplot(mapping = aes(x = niveis_confianca)) +
+  ## Regras com suporte de 0,5% -->
+  geom_line(mapping = aes(y = regras_suporte_05,
+            colour = "suporte de 0,5%")) +
+  geom_point(mapping = aes(y = regras_suporte_05,
+             colour = "suporte de 0,5%")) +
+
+  ## Regras com suporte de 0,1%
+  geom_line(mapping = aes(y = regras_suporte_01,
+            color = "suporte de 0,1%")) +
+  geom_point(mapping = aes(y = regras_suporte_01,
+             color = "suporte de 0,1%")) +
+
+  theme_bw() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.border = element_rect(fill = NULL,
+                                    colour = 'gray90',
+                                    size = 0.2),
+        axis.title.x = element_text(size = 8),
+        axis.title.y = element_text(size = 8),
+        axis.text.x = element_text(size = 8),
+        axis.text.y = element_text(size = 8),
+        legend.title = element_blank(),
+        legend.text = element_text(size = 8)) +
+  labs(title = "Número de regras de associação encontradas",
+       subtitle = "Comparação entre diferentes valores de suporte",
+       x = "Níveis de confiança",
+       y = "Regras")
+rm(d)
+
+plot(g3)
+
+```
+
+
+```{r eval = TRUE, include = FALSE, echo = FALSE, message = FALSE, warning = FALSE}
+
+rm(g1, g2, g3)
+rm(niveis_confianca, niveis_suporte,
+   regras_suporte_01, regras_suporte_05)
+
+```
+
+
+## 8. visualizaçao das regras de associação
+
+### 8.1 Gráfico de dispersão
+
+As regras de associação entre os itens podem ser vistas em um gráfico de dispersão:
+
+
+```{r eval = TRUE, include = TRUE, echo = TRUE, message = FALSE, warning = FALSE}
+
+plot(regras,
+     measure = c("support", "confidence"),
+     shading = "lift",
+     method = "scatterplot", engine = "htmlwidget")
+
+```
+
+
+### 8.2 Grafo
+
+Também é possível visualizar as regras no formato de grafos:
+
+```{r eval = TRUE, include = TRUE, echo = TRUE, message = FALSE, warning = FALSE}
+
+plot(regras,
+     method = "graph", engine = "htmlwidget")
+
+```
+
+
+### 8.3 Grafo reduzido
+
+Para tornar possível a análise podemos plotar o grafo para um subconjunto de regras. Por exemplo: regras com suporte acima de 0,5% e nível de confiança acima de 60%.
+
+
+```{r eval = TRUE, include = TRUE, echo = TRUE, message = FALSE, warning = FALSE}
+
+## Selecionando um subconjunto de regras
+subregras <- arules::subset(regras,
+                            support > 0.005 & confidence > 0.60)
+
+plot(subregras,
+     method = "graph", engine = "htmlwidget")
+
+```
+
+
+```{r eval = TRUE, include = FALSE, echo = FALSE, message = FALSE, warning = FALSE}
+
+rm(subregras)
+
+```
+
+
+```{r eval = FALSE, include = FALSE, echo = FALSE, message = FALSE, warning = FALSE}
+
+## 8. Procurando por regras
+## Existe a flexibilidade de consultarmos a existência de regras entre itens e também os níveis de
+## suporte, confiança e lift.
+
+## Buscando subregras no conjunto de regras
+## %in% busca por um ou outro
+# s <- subset(regras,
+#             subset = items %in% c("soft cheese", "whole milk") & confidence > 0.95)
+
+# ## Visualizando as associações ordenadas do maior suporte para o menor suporte
+# sub <- arules::inspect(sort(head(s, 5), by = "confidence"),
+#                        setStart = '{', setEnd = '}', itemSep = ' + ',
+#                        linebreak = NULL)
+# colnames(sub) <- c("lhs", "-->", "rhs",
+#                    "suporte", "confiança", "lift",
+#                    "frequencia")
+
+# ## Ordenando do maior para o menor nível de confiança 
+# sub <- sub %>% 
+#   dplyr::arrange(desc(`confiança`), desc(suporte)) %>%
+#   dplyr::select(lhs, `-->`, rhs,
+#                 frequencia,
+#                 suporte, `confiança`, lift)
+
+```
+
+
+```{r eval = FALSE, include = FALSE, echo = TRUE, message = FALSE, warning = FALSE}
+
+# formattable::formattable(subset(sub, select = c(lhs, `-->`, rhs, suporte)))
+
+
+```
+
+
+```{r eval = FALSE, include = FALSE, echo = FALSE, message = FALSE, warning = FALSE}
+
+# rm(s, sub)
+
+```
+
+
+```{r eval = FALSE, include = FALSE, echo = FALSE, message = FALSE, warning = FALSE}
+
+## Buscando subregras no conjunto de regras
+## %ain% busca por um e pelo outro
+s <- subset(regras,
+            subset = items %ain% c("soft cheese", "whole milk") & confidence > 0.95)
+
+## Visualizando as associações ordenadas do maior suporte para o menor suporte
+sub <- arules::inspect(sort(head(s, 5), by = "confidence"),
+                       setStart = '{', setEnd = '}', itemSep = ' + ',
+                       linebreak = NULL)
+colnames(sub) <- c("lhs", "-->", "rhs",
+                   "suporte", "confiança", "lift",
+                   "frequencia")
+
+## Ordenando do maior para o menor nível de confiança 
+sub <- sub %>%
+  dplyr::arrange(desc(confidence)) %>%
+  dplyr::select(lhs, `-->`, rhs,
+                count,
+                support, confidence, lift)
+
+```
+
+
+```{r eval = FALSE, include = FALSE, echo = FALSE, message = FALSE, warning = FALSE}
+
+formattable::formattable(subset(sub, select = c(lhs, `-->`, rhs, suporte)))
+
+```
+
+
+```{r eval = FALSE, include = FALSE, echo = FALSE, message = FALSE, warning = FALSE}
+
+rm(s, sub)
+
+```
+
+
+
+
+
